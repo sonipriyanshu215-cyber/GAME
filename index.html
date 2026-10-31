@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes">
+<title>Shadow Heist</title>
+<meta name="theme-color" content="#0f1220"><meta name="description" content="Shadow Heist - a stealth logic puzzle game. 105 levels, works offline.">
+<link rel="manifest" href="/manifest.webmanifest"><link rel="icon" href="/icon-192.png"><link rel="apple-touch-icon" href="/icon-192.png">
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
+html,body{margin:0;height:100%;background:#0f1220;color:#e8ebff;font-family:system-ui,-apple-system,sans-serif;overflow:hidden;touch-action:none}
+#app{height:100%;display:flex;flex-direction:column;align-items:center;padding:max(8px,env(safe-area-inset-top)) 10px max(8px,env(safe-area-inset-bottom))}
+.bar{width:100%;max-width:460px;display:flex;align-items:center;justify-content:space-between;gap:6px;font-weight:700;font-size:15px}
+.bar span{flex:1;text-align:center}
+button{font:inherit;color:#e8ebff;background:#252b4d;border:0;border-radius:12px;padding:10px 14px;font-weight:700}
+button:active{background:#3a4280;transform:scale(.95)}
+#wrap{flex:1;min-height:0;width:100%;max-width:460px;margin:6px 0}
+canvas{width:100%;height:100%;display:block}
+#ctl{width:100%;max-width:460px;display:flex;align-items:center;justify-content:space-between;gap:10px}
+.act{display:flex;flex-direction:column;gap:8px;flex:1}
+#dp{display:grid;grid-template-columns:repeat(3,56px);grid-template-rows:repeat(3,56px);gap:4px}
+#dp button{padding:0;font-size:22px;border-radius:14px}
+#ov{position:fixed;inset:0;background:rgba(10,12,28,.88);display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;text-align:center;padding:20px}
+#ov h1{margin:0;font-size:34px}#ov p{margin:0;opacity:.85;max-width:320px;line-height:1.4}
+#ov button{background:#ffcc4d;color:#222;font-size:18px;padding:12px 26px}
+#menu{position:fixed;inset:0;background:rgba(10,12,28,.97);display:none;flex-direction:column;align-items:center;padding:max(14px,env(safe-area-inset-top)) 14px 14px;overflow-y:auto;touch-action:pan-y}
+#gr{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;width:100%;max-width:420px;margin:12px 0}
+#gr button{padding:12px 0;font-size:15px}#gr .dn{background:#2d6a4f}#gr .cu{outline:3px solid #ffcc4d}
+#hint{font-size:12px;opacity:.6;margin-top:4px;text-align:center}
+</style></head>
+<body><div id="app">
+<div class="bar"><button id="mn">☰</button><button id="pv">◀</button><span id="ti"></span><button id="nx">▶</button></div>
+<div class="bar" style="font-size:13px;opacity:.85;margin-top:6px"><span id="st"></span></div>
+<div id="wrap"><canvas id="c"></canvas></div>
+<div id="ctl">
+ <div class="act"><button id="un">↶ Undo</button><button id="wt">⏳ Wait</button><button id="rs">⟳ Restart</button></div>
+ <div id="dp"><i></i><button data-d="0,-1">▲</button><i></i><button data-d="-1,0">◀</button><button data-d="0,0">•</button><button data-d="1,0">▶</button><i></i><button data-d="0,1">▼</button><i></i></div>
+</div>
+<div id="hint">Swipe, arrows/WASD, or the pad. Guards move 1 step every time you do. Arrows show their next step. ❄ ice slides you; 🌀 portals teleport you to their twin.</div>
+</div>
+<div id="menu"><h2 style="margin:6px 0">Choose level</h2><div id="gr"></div><button id="mc">Close</button></div>
+<div id="ov"><h1 id="oh"></h1><p id="op"></p><button id="ob"></button></div>
+<script>
+// Legend: # wall . floor P you * gem E exit  B crate (push it)
+// guards: h→ H← v↓ V↑ (patrol, turn around at walls/crates)
+const L=[
+{n:"1 · First Steps",t:"Grab every 💎, then reach the 🚪.",m:[
+"#########",
+"#P..*...#",
+"#.###.#.#",
+"#.*...#E#",
+"#########"]},
+{n:"2 · The Patrol",t:"One guard. Time your dash — you can Wait.",m:[
+"#########",
+"#P......#",
+"#.#####.#",
+"#.*.h.*.#",
+"#.#####.#",
+"#......E#",
+"#########"]},
+{n:"3 · Crossfire",t:"Two guards. Watch their arrows.",m:[
+"#########",
+"#P..*...#",
+"#.#.#.#.#",
+"#....H..#",
+"#.#.#.#.#",
+"#*.v..*E#",
+"#########"]},
+{n:"4 · Hide & Seek",t:"The corridor is narrow. Find the nook.",m:[
+"#########",
+"#P......#",
+"#.#####.#",
+"#.*...*.#",
+"#.#######",
+"#...h..E#",
+"###.#####",
+"#########"]},
+{n:"5 · Crate Wall",t:"Crates stop guards too. Use them.",m:[
+"###########",
+"#P...#...*#",
+"#.##.#.##.#",
+"#.*..B..#.#",
+"#.##.#.##.#",
+"#....h....#",
+"#.##.#.##.#",
+"#*...V...E#",
+"###########"]},
+{n:"6 · Alley",t:"Plan your route.",m:["#######","#..*..#","#.E...#","#..*..#","#...P.#","#######"]},
+{n:"7 · Rooftop",t:"Plan your route.",m:["#######","#....E#","#.....#","#*..P.#","#.*...#","#######"]},
+{n:"8 · Vault",t:"Plan your route.",m:["#######","#*..P.#","#.....#","#.....#","#..*E.#","#######"]},
+{n:"9 · Lobby",t:"Watch the arrows. Timing is everything.",m:["#######","#.EV..#","#.*...#","#P....#","#...*.#","#######"]},
+{n:"10 · Archive",t:"Watch the arrows. Timing is everything.",m:["#######","#.EP..#","#.....#","#h..*.#","#...*.#","#######"]},
+{n:"11 · Garage",t:"Watch the arrows. Timing is everything.",m:["#######","#..vE.#","#..*..#","#..*..#","#....P#","#######"]},
+{n:"12 · Tunnel",t:"Guards turn at walls and crates.",m:["#######","#.....#","#..E.*#","#.H...#","#.B*.P#","#######"]},
+{n:"13 · Gallery",t:"Guards turn at walls and crates.",m:["#######","#.B.VE#","#.....#","#...*.#","#P.*..#","#######"]},
+{n:"14 · Cellar",t:"Guards turn at walls and crates.",m:["#######","#..*..#","#..*H.#","#P..E.#","#....B#","#######"]},
+{n:"15 · Atrium",t:"Guards turn at walls and crates.",m:["#######","#...vE#","#P..*.#","#.*...#","#B....#","#######"]},
+{n:"16 · Lab",t:"Guards turn at walls and crates.",m:["#######","#H.**.#","#.....#","#B.E..#","#...P.#","#######"]},
+{n:"17 · Dock",t:"Guards turn at walls and crates.",m:["#######","#..*.E#","#.*..B#","#.v...#","#...P.#","#######"]},
+{n:"18 · Penthouse",t:"Guards turn at walls and crates.",m:["########","#B.*#*.#","#*....h#","#..E...#","##..P..#","########"]},
+{n:"19 · Bunker",t:"Guards turn at walls and crates.",m:["########","#.P..*B#","#*E#...#","#...H*.#","##.....#","########"]},
+{n:"20 · Museum",t:"Guards turn at walls and crates.",m:["########","#.V*.###","#B..*..#","#E*....#","#P..##.#","########"]},
+{n:"21 · Casino",t:"Guards turn at walls and crates.",m:["########","#*....P#","#..B#.*#","#.H....#","#E#*#V##","#..#####","########"]},
+{n:"22 · Subway",t:"Guards turn at walls and crates.",m:["########","##..H..#","#..V.*.#","#.*..E.#","#*#..P##","#B.....#","########"]},
+{n:"23 · Library",t:"Guards turn at walls and crates.",m:["########","#P..#*.#","#....B.#","#..*v#.#","#.....V#","##.*.E.#","########"]},
+{n:"24 · Harbor",t:"Guards turn at walls and crates.",m:["########","#....P.#","#.B...##","#...E#*#","#h*.H*.#","###...##","########"]},
+{n:"25 · Mansion",t:"Guards turn at walls and crates.",m:["########","#......#","#VE#..P#","#...B#.#","#*#.h.*#","#..#..*#","########"]},
+{n:"26 · Depot",t:"Guards turn at walls and crates.",m:["########","#..v...#","##.*..B#","#.#....#","#.*..h.#","#*PE##.#","########"]},
+{n:"27 · Tower",t:"Guards turn at walls and crates.",m:["########","#.B..#.#","#V#...V#","#*.#*..#","#..P*#.#","#...#.E#","########"]},
+{n:"28 · Cargo",t:"Guards turn at walls and crates.",m:["########","#.E..#.#","#..#..*#","#.*.h.V#","#*.#...#","#B...P.#","########"]},
+{n:"29 · Studio",t:"Guards turn at walls and crates.",m:["########","#.*E.P##","#.#.####","##.*H..#","#..*hB.#","#..#...#","########"]},
+{n:"30 · Bank",t:"Guards turn at walls and crates.",m:["#########","#..*.h..#","#.#.#E*B#","##..#.P.#","#.*...*.#","#..v#...#","#########"]},
+{n:"31 · Metro",t:"Guards turn at walls and crates.",m:["#########","#...E.*.#","#P.....##","#..B..V.#","#.#.*...#","##H*.*#.#","#########"]},
+{n:"32 · Palace",t:"Guards turn at walls and crates.",m:["#########","##.v...B#","#.H.*.P.#","#*#.#..*#","#.*..#.##","#...E.###","#########"]},
+{n:"33 · Foundry",t:"Guards turn at walls and crates.",m:["#########","#*#.#.*##","#......##","#..#.P#.#","#v#..#.B#","#E*H..*.#","#########"]},
+{n:"34 · Express",t:"Guards turn at walls and crates.",m:["#########","#.###.#.#","#.##.E..#","#*h..#*B#","#v...*..#","#*#...#P#","#########"]},
+{n:"35 · Lounge",t:"Guards turn at walls and crates.",m:["#########","#.*P.##.#","#....E..#","#.v#.h..#","#*..*#.*#","##.B###.#","#########"]},
+{n:"36 · Citadel",t:"Guards turn at walls and crates.",m:["#########","#BH.**.##","##...#..#","##.P...##","##*..#V.#","###....*#","###..E..#","#########"]},
+{n:"37 · Grid",t:"Guards turn at walls and crates.",m:["#########","##*.h.#.#","##*V.B..#","###..*..#","#P..B#..#","#.#.#.*.#","#.#.#E#.#","#########"]},
+{n:"38 · Maze",t:"Guards turn at walls and crates.",m:["#########","#...EP*B#","#h......#","##*.h..*#","#.#..#..#","#.*##.#.#","#.......#","#########"]},
+{n:"39 · Loop",t:"Guards turn at walls and crates.",m:["#########","#.#.B..##","#...B#*.#","#*#.#.#.#","#..h..*.#","##....P.#","#*h....E#","#########"]},
+{n:"40 · Shaft",t:"Guards turn at walls and crates.",m:["#########","######..#","####..*.#","##B.##EV#","#h......#","#.*.*#P.#","#...*.#.#","#########"]},
+{n:"41 · Relay",t:"Guards turn at walls and crates.",m:["#########","#.v##.*.#","#..#.##.#","#*..*##P#","#B...#..#","#..#V...#","#E.H...*#","#########"]},
+{n:"42 · Nexus",t:"Guards turn at walls and crates.",m:["##########","##...#..*#","#.*.H##..#","#H....*.##","##B#..P*##","##B..*..E#","#h......##","##########"]},
+{n:"43 · Cipher",t:"Guards turn at walls and crates.",m:["##########","#*##.....#","#..##*.#.#","#v..H*####","#.#E.B.#.#","#..*.#...#","#...v.*.P#","##########"]},
+{n:"44 · Mirage",t:"Guards turn at walls and crates.",m:["##########","#**H...###","#.E...P#.#","#V#B....H#","#..##*##.#","#*..##*###","#......###","##########"]},
+{n:"45 · Eclipse",t:"Guards turn at walls and crates.",m:["##########","##.*h.####","##BB.#####","#.h...#..#","#...*..P##","#...vE.**#","#......#*#","##########"]},
+{n:"46 · Phantom",t:"Guards turn at walls and crates.",m:["##########","#.E.BP...#","#.v.....v#","##*......#","##*#..#..#","#*...*#..#","#..#H.*..#","##########"]},
+{n:"47 · Echo",t:"Guards turn at walls and crates.",m:["##########","#...hV...#","###..*#E.#","##.*.*.#P#","###...#..#","##**#V...#","#...B...##","##########"]},
+{n:"48 · Pulse",t:"Guards turn at walls and crates.",m:["##########","##h*...*.#","#..*##...#","#.....#.B#","#.#H.....#","#.E...P..#","#...h**..#","##########"]},
+{n:"49 · Vertex",t:"Guards turn at walls and crates.",m:["##########","##.H.**.B#","#.#..#..E#","#VB#..H..#","#*.##*#..#","#*#..#.P.#","#........#","##########"]},
+{n:"50 · Zenith",t:"Guards turn at walls and crates.",m:["##########","#*..P....#","#.h...*.H#","##.##B.#*#","#..#.#.###","##.H....##","#...*#*EB#","##########"]},
+{n:"51 · Orbit",t:"Guards turn at walls and crates.",m:["##########","#...*....#","#.*...#..#","##.E##P*##","#.v###...#","#.#..#...#","#...*h...#","#.*B..#v##","##########"]},
+{n:"52 · Prism",t:"Guards turn at walls and crates.",m:["##########","#.....#.*#","#*..H..h.#","#.P.E.####","#...*V.###","#.#..*.###","###...B.##","#.*...####","##########"]},
+{n:"53 · Rift",t:"Guards turn at walls and crates.",m:["##########","#....#####","#P..v#.###","#...*...##","#..#..**H#","#*.h...###","#....#..##","#..BE.#*##","##########"]},
+{n:"54 · Ember",t:"Guards turn at walls and crates.",m:["###########","#..#.*..###","##.#...####","#..B*.*..##","#..#.V.#..#","#B..#.v..*#","#.#.#.*.*P#","#.#.#.V..E#","###########"]},
+{n:"55 · Frost",t:"Guards turn at walls and crates.",m:["###########","#.###*#.P.#","#...h.##.##","##*.#.##..#","#.**#..#.##","#.##BV#..E#","##.H..#**.#","#####...#.#","###########"]},
+{n:"56 · Onyx",t:"Guards turn at walls and crates.",m:["###########","###.#.....#","#v.*.E...##","#..#..*..##","#.....#...#","#*P....v..#","#.#.H.*..H#","#B.*...#*.#","###########"]},
+{n:"57 · Cobalt",t:"Guards turn at walls and crates.",m:["###########","#.#*..#..*#","#..*.h.#.##","##*#*...V##","###.#E##.B#","##...P...##","##.##...H.#","#h....#..*#","###########"]},
+{n:"58 · Argon",t:"Guards turn at walls and crates.",m:["###########","###*###...#","##.P##.H*.#","#...*hH**##","##..#E....#","#..B.#...##","#.B#.##V..#","#.*.###..##","###########"]},
+{n:"59 · Helix",t:"Guards turn at walls and crates.",m:["###########","#....H**.##","##.#..#*..#","#..#....v.#","#.#*.*.#.##","#.#v.#..#.#","#E.*B#.P#.#","#...#....h#","###########"]},
+{n:"60 · Quartz",t:"Guards turn at walls and crates.",m:["###########","#....*...*#","#####..#..#","#BH*....h.#","#.v...#...#","#.*......E#","#...#.*...#","#*..h....P#","###########"]},
+{n:"61 · Apex",t:"Guards turn at walls and crates.",m:["###########","#...*..*..#","###BP##.#E#","#.#.#.##..#","#.v...H#.##","#..#V#B..##","##.#*...V.#","#...*.**.##","###########"]},
+{n:"62 · Shadow",t:"Guards turn at walls and crates.",m:["###########","##h...#*###","#.#EH.....#","#.B.#.....#","##B##.*h.##","#**..*#.###","#.##.V...##","#..P#.*####","###########"]},
+{n:"63 · Ghost",t:"Guards turn at walls and crates.",m:["###########","##.P#######","#.*..######","#B..h.###.#","#*v#.E..*H#","#..##.#v.*#","##.####.#.#","#**##...#.#","###########"]},
+{n:"64 · Finale",t:"Guards turn at walls and crates.",m:["###########","#....h#...#","###.*#V...#","####.H..#P#","#*##...#BE#","#h......#.#","#.*#*.*...#","#.*.#..#..#","###########"]},
+{n:"65 · Legend",t:"Guards turn at walls and crates.",m:["###########","##.*#.P...#","##.#....#.#","#...#.#..V#","###.*.H*v.#","###.#v.#.E#","##.*#*#...#","#..*B..#..#","###########"]},
+{n:"★66 · Glacier",t:"❄ Ice slides you until something blocks you. Guards only move once per slide.",m:["########","#~~....#","#P~.*..#","#....E.#","#.H.*.*#","#...B..#","########"]},
+{n:"★67 · Mirror",t:"❄ Ice slides you until something blocks you. Guards only move once per slide.",m:["########","#..*~V.#","#......#","#....*.#","#P~..*.#","#....BE#","########"]},
+{n:"★68 · Echo",t:"❄ Ice slides you until something blocks you. Guards only move once per slide.",m:["########","#P..*..#","#.*.~~~#","#...H*.#","#~~~...#","#..B.E.#","########"]},
+{n:"★69 · Prism",t:"❄ Ice slides you until something blocks you. Guards only move once per slide.",m:["########","#*..*hB#","#......#","#.1.*.P#","#.1~~*~#","#E~~V..#","########"]},
+{n:"★70 · Rift",t:"❄ Ice slides you until something blocks you. Guards only move once per slide.",m:["########","#.~..E.#","#P~.B*.#","#~~~...#","#......#","#h..**.#","########"]},
+{n:"★71 · Vortex",t:"❄ Ice slides you until something blocks you. Guards only move once per slide.",m:["########","#..P...#","#...*..#","#.11...#","#~~~*B.#","#.*~v.E#","########"]},
+{n:"★72 · Cipher",t:"❄ Ice slides you until something blocks you. Guards only move once per slide.",m:["########","#.~.*..#","#...*..#","#...P..#","#.B~...#","#E.*..H#","########"]},
+{n:"★73 · Enigma",t:"❄ Ice slides you until something blocks you. Guards only move once per slide.",m:["########","#..E...#","#.h..*.#","#.~....#","#.~...P#","#**.B~.#","########"]},
+{n:"★74 · Paradox",t:"🌀 Portals teleport you to their twin. Guards ignore them.",m:["###########","##B#.#.####","##..V~~~h##","#.*..~1*###","####.~2.###","#B**#~2..##","##P#.~1.E##","#..***~v..#","###########"]},
+{n:"★75 · Labyrinth",t:"🌀 Portals teleport you to their twin. Guards ignore them.",m:["#########","#..E.~#.#","#*..1.~~#","###.B#.*#","#...H##.#","#.1#*~~##","#.P#.*h.#","#########"]},
+{n:"★76 · Riddle",t:"🌀 Portals teleport you to their twin. Guards ignore them.",m:["########","#~~~1~P#","#~*1.B.#","#~.....#","#...*..#","#.*.hE.#","########"]},
+{n:"★77 · Gambit",t:"🌀 Portals teleport you to their twin. Guards ignore them.",m:["##########","##.#....H#","#.*.#*P..#","#.#B*~.#V#","#*~E~#...#","#V.*#2~.##","#2*.#B1.1#","##########"]},
+{n:"★78 · Zugzwang",t:"🌀 Portals teleport you to their twin. Guards ignore them.",m:["##########","#*#.##*~~#","#.#~B.*.B#","#~.~#*H..#","#..~###..#","#.#~##E..#","#.P~*~1v1#","##########"]},
+{n:"★79 · Sphinx",t:"🌀 Portals teleport you to their twin. Guards ignore them.",m:["##########","##V.1.*B2#","#.*.*#B.##","#..P#.#.1#","#..~~~.*~#","##h~.....#","#.2*~.E*##","##########"]},
+{n:"★80 · Oracle",t:"🌀 Portals teleport you to their twin. Guards ignore them.",m:["########","#~1....#","#E*~...#","#*vB.P.#","#.*.1..#","#H....*#","########"]},
+{n:"★81 · Axiom",t:"🌀 Portals teleport you to their twin. Guards ignore them.",m:["##########","###..#2*V#","#.h..~.*.#","##..2~.P.#","#.E##B~~*#","#.#B.#**1#","#...#.1#.#","##.*h~...#","##########"]},
+{n:"★82 · Theorem",t:"🌀 Portals teleport you to their twin. Guards ignore them.",m:["###########","#...**...E#","#1P2.~#.#~#","#..#*....~#","#~*H..*h.~#","#B#..##...#","##12#B..*.#","#....h.#~##","###########"]},
+{n:"★83 · Matrix",t:"🌀 Portals teleport you to their twin. Guards ignore them.",m:["#########","#..v~#.P#","#1*.B#.~#","#..*.~.~#","#.E**#.~#","#..v.#.1#","#########"]},
+{n:"★84 · Fractal",t:"Combine ice, portals and crates. Think several moves ahead.",m:["#########","#*#..~E.#","#V..#1~.#","#~~.1#~.#","#..P.*B*#","##.*...h#","#########"]},
+{n:"★85 · Tesseract",t:"Combine ice, portals and crates. Think several moves ahead.",m:["###########","#..h.1..*E#","#..#**.h#~#","#*~..H..#.#","#.##*#.~~2#","#..~#..*..#","##*~.##P~B#","#.1..2...B#","###########"]},
+{n:"★86 · Nemesis",t:"Combine ice, portals and crates. Think several moves ahead.",m:["#########","#*..*H###","#.#P.*###","#V.....##","#~.*#...#","#~~1~~.E#","#~B.*~1##","#########"]},
+{n:"★87 · Abyss",t:"Combine ice, portals and crates. Think several moves ahead.",m:["##########","#...#.##1#","#..##H.*.#","#*B~B~#.1#","#*E#...#.#","#.*h~~P#.#","#.#~~#~*.#","##########"]},
+{n:"★88 · Cascade",t:"Combine ice, portals and crates. Think several moves ahead.",m:["#########","#.~###~*#","#*..###v#","#P#.*#..#","#*.B~~#.#","#1.#V..1#","##*....E#","#########"]},
+{n:"★89 · Pinnacle",t:"Combine ice, portals and crates. Think several moves ahead.",m:["#########","#v.#*~#.#","#.#....1#","#*~~H.#.#","#..*.B#E#","#.P.1..*#","#..#~~..#","#########"]},
+{n:"★90 · Chimera",t:"Combine ice, portals and crates. Think several moves ahead.",m:["#########","###.~.1.#","#*#V~B~E#","#*#*1...#","#...P..##","#**...H##","#..#..~##","#########"]},
+{n:"★91 · Kraken",t:"Combine ice, portals and crates. Think several moves ahead.",m:["##########","##2..~.*##","##.*#h*..#","##BH~~.~B#","#.E..1.P.#","#..*h#.~1#","#..2*.*~##","##########"]},
+{n:"★92 · Obsidian",t:"Combine ice, portals and crates. Think several moves ahead.",m:["###########","#...*2.####","#1.E*B#..##","#.1~#*.~###","##~~~h.H###","#..~.~H**.#","#..~2..##.#","#..B*P.~~*#","###########"]},
+{n:"★93 · Warden",t:"Combine ice, portals and crates. Think several moves ahead.",m:["#########","#.*#..#E#","#*...H..#","##~..~*1#","#..1..B.#","##V..~P*#","#########"]},
+{n:"★94 · Phoenix",t:"Combine ice, portals and crates. Think several moves ahead.",m:["##########","#1......h#","#B.~~~#~~#","#...#*..*#","#P..#~1~*#","#*#..B.2##","#.#.*.h2E#","##########"]},
+{n:"★95 · Wraith",t:"Combine ice, portals and crates. Think several moves ahead.",m:["##########","#~~E#.*.P#","#.V#.#~2B#","#....2.#.#","##*..~..V#","#**..1..~#","#.*1.B#.*#","##########"]},
+{n:"★96 · Titan",t:"Combine ice, portals and crates. Think several moves ahead.",m:["###########","#.*P*#~2.##","#~~1#*~#*.#","##..#.##..#","#V..#..2V.#","#.~.......#","#.E.*..#*B#","#*..1V#..B#","###########"]},
+{n:"★97 · Leviathan",t:"Combine ice, portals and crates. Think several moves ahead.",m:["###########","#..*..#.~.#","#.v2#E#.###","#...#.*BB~#","#~~..#..~~#","##~h*.**.2#","##V.~~#*.~#","#.1*...1#P#","###########"]},
+{n:"★98 · Eclipse",t:"Combine ice, portals and crates. Think several moves ahead.",m:["#########","##*.E#~*#","#1#.#.*##","#~~V.B..#","#*.~H...#","#1.~...P#","#########"]},
+{n:"★99 · Nebula",t:"Combine ice, portals and crates. Think several moves ahead.",m:["##########","#E...###v#","#.#2B*#..#","#.1#2.B..#","#...#V.#*#","#1P#.~*..#","#~~~~.H*.#","#~.*.##*.#","##########"]},
+{n:"★100 · Singularity",t:"Combine ice, portals and crates. Think several moves ahead.",m:["###########","#~..~E*#..#","##1##B.##*#","#.#.B..*..#","#1*.2#.*.##","#.#..~.*v.#","#h...~*..##","#~#v.~P#2.#","###########"]},
+{n:"★101 · Infinity",t:"Combine ice, portals and crates. Think several moves ahead.",m:["###########","#.~#*B.*B.#","#.V.~~~2~.#","#..*....#E#","#*....#1#.#","#*.#V1..~~#","##.*..P.~~#","#..##*.#2v#","###########"]},
+{n:"★102 · Omega",t:"Combine ice, portals and crates. Think several moves ahead.",m:["#########","#~~#....#","#...*.H*#","#P#~~~#.#","#*.B.V1##","##..E...#","#*.*1...#","#########"]},
+{n:"★103 · Apex",t:"Combine ice, portals and crates. Think several moves ahead.",m:["###########","#P.#~Bh...#","#..#~v#1..#","#.1#...2..#","#.*E*.B~~.#","#.*~..*.#.#","##....#.~*#","##V*.#.2*~#","###########"]},
+{n:"★104 · Genius",t:"Combine ice, portals and crates. Think several moves ahead.",m:["##########","#~P.#~~~.#","##1##*.*~#","#.B......#","#...*.B2E#","#1.#..h.2#","#.#**.h..#","##########"]},
+{n:"★105 · Glacier",t:"Combine ice, portals and crates. Think several moves ahead.",m:["###########","##.~~*.#~2#","#*#..**.2.#","#~..B....1#","#*.....E..#","#P~~~~H.#.#","#..V..H#..#","#.B1.~~*#.#","###########"]}
+];
+const $=id=>document.getElementById(id),cv=$("c"),x=cv.getContext("2d");
+let lv=0,g,hist=[],best={},shake=0;
+try{best=JSON.parse(localStorage.getItem("shadowheist")||"{}")}catch(e){}
+const saveB=()=>{try{localStorage.setItem("shadowheist",JSON.stringify(best))}catch(e){}};
+const k=(a,b)=>b*g.w+a;
+function init(i){
+ lv=(i+L.length)%L.length;const m=L[lv].m;const pp={};
+ g={w:m[0].length,h:m.length,wall:new Set(),gems:new Set(),box:new Set(),gd:[],ice:new Set(),por:{},pic:{},p:null,e:null,moves:0,st:"play"};
+ m.forEach((r,y)=>[...r].forEach((c,a)=>{
+  if(c=="#")g.wall.add(k(a,y));
+  else if(c=="~")g.ice.add(k(a,y));
+  else if(c>="1"&&c<="9")(pp[c]=pp[c]||[]).push({x:a,y,c});
+  else if(c=="*")g.gems.add(k(a,y));
+  else if(c=="B")g.box.add(k(a,y));
+  else if(c=="P")g.p={x:a,y};
+  else if(c=="E")g.e={x:a,y};
+  else if("hHvV".includes(c))g.gd.push({x:a,y,dx:c=="h"?1:c=="H"?-1:0,dy:c=="v"?1:c=="V"?-1:0});
+ }));
+ for(const c in pp){const v=pp[c];if(v.length==2){const A=k(v[0].x,v[0].y),B=k(v[1].x,v[1].y);g.por[A]=v[1];g.por[B]=v[0];g.pic[A]=g.pic[B]=c}}
+ g.total=g.gems.size;hist=[];try{localStorage.setItem("shadowheist_last",lv)}catch(e){}$("ov").style.display="none";ui();fit();
+}
+const snap=()=>JSON.stringify({p:g.p,gems:[...g.gems],box:[...g.box],gd:g.gd,moves:g.moves});
+function restore(s){s=JSON.parse(s);g.p=s.p;g.gems=new Set(s.gems);g.box=new Set(s.box);g.gd=s.gd;g.moves=s.moves;g.st="play";$("ov").style.display="none"}
+const guardAt=(a,b)=>g.gd.some(o=>o.x==a&&o.y==b);
+const solid=(a,b)=>g.wall.has(k(a,b))||g.box.has(k(a,b));
+function step(dx,dy){
+ if(g.st!="play")return;
+ const s=snap(),px=g.p.x,py=g.p.y;let nx=px,ny=py;
+ if(dx||dy){
+  nx=px+dx;ny=py+dy;
+  if(g.wall.has(k(nx,ny))){shake=6;return}
+  if(g.box.has(k(nx,ny))){
+   const bx=nx+dx,by=ny+dy;
+   if(solid(bx,by)||g.gems.has(k(bx,by))||(bx==g.e.x&&by==g.e.y)||guardAt(bx,by)||g.por[k(bx,by)]){shake=6;return}
+   g.box.delete(k(nx,ny));g.box.add(k(bx,by));
+  }
+  const q=g.por[k(nx,ny)];if(q){nx=q.x;ny=q.y}
+ }
+ hist.push(s);g.moves++;
+ if(dx||dy){
+  for(;;){g.gems.delete(k(nx,ny));g.p={x:nx,y:ny};if(guardAt(nx,ny))return lose();
+   if(!g.ice.has(k(nx,ny)))break;const ax=nx+dx,ay=ny+dy;if(solid(ax,ay))break;nx=ax;ny=ay}
+ }else g.gems.delete(k(nx,ny));
+ if(!g.gems.size&&nx==g.e.x&&ny==g.e.y)return win();
+ let caught=false;
+ for(const o of g.gd){
+  const ox=o.x,oy=o.y;
+  let tx=ox+o.dx,ty=oy+o.dy;
+  if(solid(tx,ty)){o.dx*=-1;o.dy*=-1;tx=ox+o.dx;ty=oy+o.dy;if(solid(tx,ty))continue}
+  o.x=tx;o.y=ty;
+  if((tx==nx&&ty==ny)||(tx==px&&ty==py&&ox==nx&&oy==ny))caught=true;
+ }
+ if(caught)return lose();
+ ui();draw();
+}
+function undo(){if(hist.length){restore(hist.pop());ui();draw()}}
+function lose(){g.st="lose";shake=14;buzz();ui();draw();ov("Busted! 🚨","A guard caught you. Think about the timing.","Undo last move",()=>undo())}
+function win(){
+ g.st="win";const b=best[lv];if(!b||g.moves<b)best[lv]=g.moves;saveB();ui();draw();
+ const last=lv==L.length-1;
+ ov(last?"Master Thief! 🏆":"Level clear! 🎉","Moves: "+g.moves+" · Best: "+best[lv],last?"Play again":"Next level",()=>init(lv+1));
+}
+function ov(h,p,b,f){$("oh").textContent=h;$("op").textContent=p;$("ob").textContent=b;$("ob").onclick=f;$("ov").style.display="flex"}
+function buzz(){try{navigator.vibrate&&navigator.vibrate(80)}catch(e){}}
+function menu(){
+ const gr=$("gr");gr.innerHTML="";
+ L.forEach((l,i)=>{const b=document.createElement("button");b.textContent=(i+1)+(best[i]?" ✓":"");
+  if(best[i])b.className="dn";if(i==lv)b.className+=" cu";
+  b.onclick=()=>{$("menu").style.display="none";init(i)};gr.appendChild(b)});
+ $("menu").style.display="flex";
+}
+function ui(){
+ $("ti").textContent=L[lv].n;
+ $("st").textContent="💎 "+(g.total-g.gems.size)+"/"+g.total+"  ·  Moves "+g.moves+(best[lv]?"  ·  Best "+best[lv]:"")+"  ·  "+L[lv].t;
+}
+function fit(){
+ const r=$("wrap").getBoundingClientRect(),d=window.devicePixelRatio||1;
+ cv.width=Math.max(10,r.width*d);cv.height=Math.max(10,r.height*d);draw();
+}
+function draw(){
+ if(!g)return;
+ const W=cv.width,H=cv.height,cs=Math.floor(Math.min(W/g.w,H/g.h)),ox=(W-cs*g.w)/2,oy=(H-cs*g.h)/2;
+ x.clearRect(0,0,W,H);
+ let sx=0,sy=0;if(shake>0){sx=(Math.random()-.5)*shake;sy=(Math.random()-.5)*shake;shake--;requestAnimationFrame(draw)}
+ x.save();x.translate(ox+sx,oy+sy);
+ x.textAlign="center";x.textBaseline="middle";
+ const ready=!g.gems.size;
+ for(let b=0;b<g.h;b++)for(let a=0;a<g.w;a++){
+  const w=g.wall.has(k(a,b));
+  x.fillStyle=w?"#39407a":((a+b)%2?"#1b2040":"#202649");
+  x.beginPath();x.roundRect(a*cs+1,b*cs+1,cs-2,cs-2,cs*.14);x.fill();
+ }
+ const em=(s,a,b,sc)=>{x.font=(cs*sc)+"px serif";x.fillText(s,a*cs+cs/2,b*cs+cs/2+cs*.04)};
+ g.ice.forEach(i=>{x.fillStyle="rgba(120,210,255,.38)";x.fillRect((i%g.w)*cs+1,Math.floor(i/g.w)*cs+1,cs-2,cs-2);em("❄",i%g.w,Math.floor(i/g.w),.4)});
+ for(const i in g.por)em(["🌀","🔮","🧿","🌐"][g.pic[i]-1]||"🌀",+i%g.w,Math.floor(+i/g.w),.7);
+ x.globalAlpha=ready?1:.45;em("🚪",g.e.x,g.e.y,.75);x.globalAlpha=1;
+ if(ready){x.strokeStyle="#ffcc4d";x.lineWidth=3;x.strokeRect(g.e.x*cs+3,g.e.y*cs+3,cs-6,cs-6)}
+ g.gems.forEach(i=>em("💎",i%g.w,Math.floor(i/g.w),.7));
+ g.box.forEach(i=>em("📦",i%g.w,Math.floor(i/g.w),.75));
+ for(const o of g.gd){
+  x.fillStyle="rgba(255,60,80,.25)";x.fillRect(o.x*cs+1,o.y*cs+1,cs-2,cs-2);
+  em("👮",o.x,o.y,.72);
+  em(o.dx>0?"➡️":o.dx<0?"⬅️":o.dy>0?"⬇️":"⬆️",o.x+o.dx*.38,o.y+o.dy*.38,.28);
+ }
+ em(g.st=="lose"?"😵":"🥷",g.p.x,g.p.y,.75);
+ x.restore();
+}
+// input
+const dirs={ArrowUp:[0,-1],ArrowDown:[0,1],ArrowLeft:[-1,0],ArrowRight:[1,0],w:[0,-1],s:[0,1],a:[-1,0],d:[1,0]};
+addEventListener("keydown",e=>{
+ const d=dirs[e.key];
+ if(d){e.preventDefault();step(...d)}
+ else if(e.key==" "){e.preventDefault();step(0,0)}
+ else if(e.key=="z"||e.key=="u")undo();
+ else if(e.key=="r")init(lv);
+});
+document.querySelectorAll("#dp button").forEach(b=>b.addEventListener("pointerdown",e=>{e.preventDefault();const[d,f]=b.dataset.d.split(",").map(Number);step(d,f)}));
+$("un").onclick=undo;$("wt").onclick=()=>step(0,0);$("rs").onclick=()=>init(lv);
+$("mn").onclick=menu;$("mc").onclick=()=>$("menu").style.display="none";
+$("pv").onclick=()=>init(lv-1);$("nx").onclick=()=>init(lv+1);
+let t0=null;
+$("wrap").addEventListener("touchstart",e=>{t0=e.touches[0]},{passive:true});
+$("wrap").addEventListener("touchend",e=>{
+ if(!t0)return;const t=e.changedTouches[0],dx=t.clientX-t0.clientX,dy=t.clientY-t0.clientY;t0=null;
+ if(Math.max(Math.abs(dx),Math.abs(dy))<24)return step(0,0);
+ Math.abs(dx)>Math.abs(dy)?step(dx>0?1:-1,0):step(0,dy>0?1:-1);
+});
+addEventListener("resize",fit);
+let st0=0;try{st0=parseInt(localStorage.getItem("shadowheist_last"))||0}catch(e){}
+init(st0<L.length?st0:0);
+if("serviceWorker"in navigator&&location.protocol.startsWith("http"))addEventListener("load",()=>navigator.serviceWorker.register("/sw.js").catch(()=>{}));
+</script></body></html>
